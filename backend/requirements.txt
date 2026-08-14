@@ -1,0 +1,14 @@
+fastapi
+uvicorn
+sqlalchemy
+asyncpg
+redis
+celery
+pydantic
+pydantic-settings
+httpx
+aiosqlite
+scikit-learn
+numpy
+python-docx
+python-dotenv

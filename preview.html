@@ -1,0 +1,250 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>RepoLens — Repository Analysis</title>
+<style>
+:root{
+  --bg:#080808; --panel:#101010; --panel2:#151515; --line:#282828;
+  --text:#f5f5f5; --muted:#9a9a9a; --orange:#ff6a00; --orange2:#ff8a2a;
+  --green:#49c37b; --red:#ff5d5d; --yellow:#f2c14e; --blue:#6da9ff;
+  --shadow:0 18px 55px rgba(0,0,0,.38);
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--text);font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+button,input{font:inherit}
+button{cursor:pointer}
+.shell{min-height:100vh}
+.topbar{height:68px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;padding:0 34px;position:sticky;top:0;background:rgba(8,8,8,.94);backdrop-filter:blur(14px);z-index:20}
+.brand{display:flex;gap:12px;align-items:center;font-weight:750;letter-spacing:-.02em}
+.mark{width:28px;height:28px;border:2px solid var(--orange);display:grid;place-items:center;font-size:12px;font-weight:900;box-shadow:0 0 18px rgba(255,106,0,.18)}
+.brand span{color:var(--orange)}
+.top-actions{display:flex;gap:9px}
+.btn{border:1px solid var(--line);background:#111;color:#eee;padding:9px 13px;border-radius:7px;font-size:13px;font-weight:650}
+.btn:hover{border-color:#444;background:#171717}
+.btn.primary{background:var(--orange);border-color:var(--orange);color:#080808}
+.btn.primary:hover{background:var(--orange2)}
+.container{max-width:1380px;margin:auto;padding:42px 34px 70px}
+.hero{display:flex;justify-content:space-between;gap:28px;align-items:flex-end;margin-bottom:28px}
+.eyebrow{font-size:11px;color:var(--orange);font-weight:800;letter-spacing:.16em;text-transform:uppercase;margin-bottom:10px}
+h1{font-size:36px;line-height:1.05;margin:0 0 10px;letter-spacing:-.04em}
+.hero p{margin:0;color:var(--muted);font-size:14px}
+.repo-form{display:flex;gap:8px;margin:26px 0 34px}
+.repo-form input{flex:1;min-width:0;background:#0e0e0e;border:1px solid var(--line);border-radius:8px;padding:14px 15px;color:#fff;outline:none}
+.repo-form input:focus{border-color:var(--orange);box-shadow:0 0 0 3px rgba(255,106,0,.1)}
+.progress{display:none;border:1px solid var(--line);background:var(--panel);padding:18px 20px;border-radius:10px;margin-bottom:24px}
+.progress.active{display:block}
+.progress-head{display:flex;justify-content:space-between;font-size:13px;margin-bottom:13px}
+.progress-head strong{color:var(--orange)}
+.track{height:4px;background:#252525;overflow:hidden;border-radius:9px}
+.track i{display:block;width:58%;height:100%;background:var(--orange);box-shadow:0 0 15px rgba(255,106,0,.5);animation:scan 1.4s infinite ease-in-out}
+@keyframes scan{50%{width:83%}100%{width:58%}}
+.chain{display:flex;gap:18px;margin-top:15px;color:#777;font-size:11px}
+.chain b{color:#ddd;font-weight:600}
+.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:26px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:18px;box-shadow:var(--shadow)}
+.metric-label{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.09em}
+.metric{font-size:29px;font-weight:760;margin-top:8px}
+.metric small{font-size:12px;color:var(--muted);font-weight:500}
+.metric.red{color:var(--red)}.metric.orange{color:var(--orange)}.metric.green{color:var(--green)}
+.content{display:grid;grid-template-columns:minmax(0,1fr) 380px;gap:16px}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.panel-head{display:flex;align-items:center;justify-content:space-between;padding:17px 19px;border-bottom:1px solid var(--line)}
+.panel-title{font-size:14px;font-weight:720}
+.filters{display:flex;gap:6px}
+.filter{font-size:11px;padding:6px 9px;border-radius:6px;border:1px solid var(--line);background:#0c0c0c;color:#aaa}
+.filter.active{color:#fff;border-color:#555}
+.finding{border-bottom:1px solid #202020;padding:17px 19px;display:grid;grid-template-columns:72px 1fr auto;gap:15px;align-items:start;transition:.15s}
+.finding:hover{background:#141414}
+.finding:last-child{border-bottom:0}
+.sev{font-size:10px;text-transform:uppercase;letter-spacing:.08em;font-weight:800;padding:5px 7px;border-radius:5px;text-align:center}
+.sev.high{color:#ff7676;background:rgba(255,93,93,.09);border:1px solid rgba(255,93,93,.22)}
+.sev.med{color:#f2c14e;background:rgba(242,193,78,.08);border:1px solid rgba(242,193,78,.2)}
+.sev.low{color:#75d5a0;background:rgba(73,195,123,.08);border:1px solid rgba(73,195,123,.2)}
+.finding h3{margin:0 0 6px;font-size:14px;font-weight:700}
+.finding p{margin:0;color:#9a9a9a;font-size:12px;line-height:1.55}
+.path{margin-top:8px;color:#777;font:11px ui-monospace,SFMono-Regular,Menlo,monospace}
+.path span{color:var(--orange)}
+.chev{color:#666;font-size:18px}
+.details{padding:19px}
+.detail-empty{color:#777;font-size:13px;line-height:1.6}
+.detail{display:none}.detail.active{display:block}
+.detail h2{font-size:17px;margin:0 0 8px}
+.detail .tag{display:inline-block;font-size:10px;padding:4px 7px;border-radius:4px;background:#1c1c1c;color:#bbb;margin-bottom:15px}
+.detail-section{border-top:1px solid var(--line);padding:15px 0}
+.detail-section h4{margin:0 0 7px;font-size:11px;text-transform:uppercase;letter-spacing:.1em;color:#888}
+.detail-section p{font-size:12px;line-height:1.65;color:#b4b4b4;margin:0}
+.code{background:#090909;border:1px solid #242424;border-radius:7px;padding:12px;overflow:auto;font:11px/1.7 ui-monospace,SFMono-Regular,Menlo,monospace;color:#d9d9d9}
+.code .ln{color:#555;display:inline-block;width:28px;user-select:none}.code .err{background:rgba(255,93,93,.12);display:block;margin:0 -12px;padding:0 12px;border-left:2px solid var(--red)}
+.fix{color:#8de0b2!important}
+.legend{display:flex;gap:14px;padding:12px 19px;border-top:1px solid var(--line);color:#777;font-size:10px}
+.dot{width:7px;height:7px;border-radius:50%;display:inline-block;margin-right:5px}.dred{background:var(--red)}.dyellow{background:var(--yellow)}.dgreen{background:var(--green)}
+.footer{margin-top:28px;color:#555;font-size:11px;display:flex;justify-content:space-between}
+.toast{position:fixed;right:25px;bottom:25px;background:#171717;border:1px solid #333;padding:12px 15px;border-radius:8px;color:#ddd;font-size:12px;opacity:0;transform:translateY(8px);transition:.2s;pointer-events:none}.toast.show{opacity:1;transform:none}
+@media(max-width:1050px){.content{grid-template-columns:1fr}.grid{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:680px){.topbar{padding:0 16px}.container{padding:28px 16px 50px}.hero{display:block}.hero .top-actions{margin-top:18px}.repo-form{flex-direction:column}.grid{grid-template-columns:1fr 1fr}.finding{grid-template-columns:1fr}.chev{display:none}}
+</style>
+</head>
+<body>
+<div class="shell">
+<header class="topbar">
+  <div class="brand"><div class="mark">R</div>Repo<span>Lens</span></div>
+  <div class="top-actions">
+    <button class="btn" onclick="exportReport('html')">Export HTML</button>
+    <button class="btn" onclick="exportReport('pdf')">Export PDF</button>
+    <button class="btn primary" onclick="exportReport('docx')">Export DOCX</button>
+  </div>
+</header>
+
+<main class="container">
+<section class="hero">
+  <div>
+    <div class="eyebrow">Repository intelligence</div>
+    <h1>Codebase analysis, without the noise.</h1>
+    <p>Scan a Git repository, surface actionable issues, and trace every finding back to its exact source line.</p>
+  </div>
+</section>
+
+<form class="repo-form" onsubmit="startScan(event)">
+  <input id="repo" type="url" placeholder="https://github.com/owner/repository" value="https://github.com/example/project">
+  <button class="btn primary" type="submit">Analyze repository</button>
+</form>
+
+<section id="progress" class="progress">
+  <div class="progress-head"><span id="progressText">Initializing repository scanner…</span><strong id="progressPct">12%</strong></div>
+  <div class="track"><i></i></div>
+  <div class="chain"><b>Clone</b><span>→</span><b>Structure</b><span>→</span><b>Static analysis</b><span>→</span><b>Security</b><span>→</span><b>Report</b></div>
+</section>
+
+<section class="grid">
+  <div class="card"><div class="metric-label">Issues found</div><div class="metric red">12</div></div>
+  <div class="card"><div class="metric-label">High severity</div><div class="metric orange">3</div></div>
+  <div class="card"><div class="metric-label">Files scanned</div><div class="metric">148</div></div>
+  <div class="card"><div class="metric-label">Health score</div><div class="metric green">78<small>/100</small></div></div>
+</section>
+
+<section class="content">
+  <div class="panel">
+    <div class="panel-head">
+      <div class="panel-title">Findings</div>
+      <div class="filters">
+        <button class="filter active" onclick="filterFindings('all',this)">All</button>
+        <button class="filter" onclick="filterFindings('high',this)">High</button>
+        <button class="filter" onclick="filterFindings('medium',this)">Medium</button>
+      </div>
+    </div>
+
+    <div class="finding" data-level="high" onclick="showDetail(1)">
+      <div class="sev high">High</div>
+      <div><h3>Hard-coded API credential detected</h3><p>Potential secret committed directly in application configuration.</p><div class="path">src/config/api.js:<span>17</span></div></div><div class="chev">›</div>
+    </div>
+    <div class="finding" data-level="high" onclick="showDetail(2)">
+      <div class="sev high">High</div>
+      <div><h3>Unhandled promise rejection</h3><p>Async operation can fail without reaching an error boundary.</p><div class="path">src/services/analyzer.js:<span>84</span></div></div><div class="chev">›</div>
+    </div>
+    <div class="finding" data-level="medium" onclick="showDetail(3)">
+      <div class="sev med">Medium</div>
+      <div><h3>Duplicate network request</h3><p>Effect dependencies trigger the same API call more than once.</p><div class="path">src/pages/Dashboard.jsx:<span>42</span></div></div><div class="chev">›</div>
+    </div>
+    <div class="finding" data-level="medium" onclick="showDetail(4)">
+      <div class="sev med">Medium</div>
+      <div><h3>Missing input validation</h3><p>User-controlled repository URL reaches the backend without validation.</p><div class="path">src/components/RepoForm.jsx:<span>31</span></div></div><div class="chev">›</div>
+    </div>
+    <div class="finding" data-level="low" onclick="showDetail(5)">
+      <div class="sev low">Low</div>
+      <div><div><h3>Deprecated lifecycle pattern</h3><p>Legacy pattern can be replaced with the current component API.</p><div class="path">src/components/LegacyPanel.jsx:<span>19</span></div></div></div><div class="chev">›</div>
+    </div>
+    <div class="legend"><span><i class="dot dred"></i>High risk</span><span><i class="dot dyellow"></i>Needs attention</span><span><i class="dot dgreen"></i>Improvement</span></div>
+  </div>
+
+  <aside class="panel">
+    <div class="panel-head"><div class="panel-title">Issue details</div><button class="filter" onclick="closeDetail()">Clear</button></div>
+    <div class="details">
+      <div id="empty" class="detail-empty">Select a finding to inspect the problem, exact location, impact, and recommended fix.</div>
+
+      <div id="detail1" class="detail">
+        <h2>Hard-coded API credential detected</h2><span class="tag">src/config/api.js · line 17</span>
+        <div class="detail-section"><h4>Issue</h4><p>A credential-like value is embedded in source code. Anyone with repository access may be able to reuse it.</p></div>
+        <div class="detail-section"><h4>Location</h4><div class="code"><span class="ln">15</span>export const config = {<br><span class="ln">16</span>  baseUrl: API_URL,<br><span class="err"><span class="ln">17</span>  apiKey: "sk_live_xxxxxxxxx",</span><span class="ln">18</span>};</div></div>
+        <div class="detail-section"><h4>Fix</h4><p class="fix">Move the secret to an environment variable, rotate the exposed credential, and keep secrets outside version control.</p></div>
+      </div>
+
+      <div id="detail2" class="detail">
+        <h2>Unhandled promise rejection</h2><span class="tag">src/services/analyzer.js · line 84</span>
+        <div class="detail-section"><h4>Issue</h4><p>The asynchronous analyzer call is awaited without a local failure path.</p></div>
+        <div class="detail-section"><h4>Location</h4><div class="code"><span class="ln">82</span>const analyze = async repo =&gt; {<br><span class="err"><span class="ln">84</span>  const result = await scanner.run(repo);</span><span class="ln">85</span>  return normalize(result);</div></div>
+        <div class="detail-section"><h4>Fix</h4><p class="fix">Wrap the operation in try/catch and propagate a typed error to the UI boundary.</p></div>
+      </div>
+
+      <div id="detail3" class="detail">
+        <h2>Duplicate network request</h2><span class="tag">src/pages/Dashboard.jsx · line 42</span>
+        <div class="detail-section"><h4>Issue</h4><p>An effect can execute twice because an unstable object is included in its dependency list.</p></div>
+        <div class="detail-section"><h4>Fix</h4><p class="fix">Depend on primitive values or memoize the request parameters before using them as effect dependencies.</p></div>
+      </div>
+
+      <div id="detail4" class="detail">
+        <h2>Missing input validation</h2><span class="tag">src/components/RepoForm.jsx · line 31</span>
+        <div class="detail-section"><h4>Issue</h4><p>The repository URL is submitted without checking protocol, host, or expected repository format.</p></div>
+        <div class="detail-section"><h4>Fix</h4><p class="fix">Validate the URL client-side for fast feedback and repeat validation server-side before cloning.</p></div>
+      </div>
+
+      <div id="detail5" class="detail">
+        <h2>Deprecated lifecycle pattern</h2><span class="tag">src/components/LegacyPanel.jsx · line 19</span>
+        <div class="detail-section"><h4>Issue</h4><p>A legacy component lifecycle API makes maintenance harder and may conflict with newer React patterns.</p></div>
+        <div class="detail-section"><h4>Fix</h4><p class="fix">Replace the legacy lifecycle with the current functional component and effect model.</p></div>
+      </div>
+    </div>
+  </aside>
+</section>
+
+<div class="footer"><span>RepoLens · Local analysis UI prototype</span><span>Static preview data · connect your analyzer API to populate live findings</span></div>
+</main>
+</div>
+<div id="toast" class="toast"></div>
+<script>
+function showDetail(id){
+  document.querySelectorAll('.detail').forEach(x=>x.classList.remove('active'));
+  document.getElementById('empty').style.display='none';
+  document.getElementById('detail'+id).classList.add('active');
+}
+function closeDetail(){
+  document.querySelectorAll('.detail').forEach(x=>x.classList.remove('active'));
+  document.getElementById('empty').style.display='block';
+}
+function filterFindings(level,btn){
+  document.querySelectorAll('.filter').forEach(x=>x.classList.remove('active'));
+  btn.classList.add('active');
+  document.querySelectorAll('.finding').forEach(x=>x.style.display=(level==='all'||x.dataset.level===level)?'grid':'none');
+}
+function startScan(e){
+  e.preventDefault();
+  const progress=document.getElementById('progress');
+  progress.classList.add('active');
+  const text=document.getElementById('progressText'), pct=document.getElementById('progressPct');
+  const steps=[
+    ['Cloning repository…',18],['Indexing project structure…',36],
+    ['Running static analysis…',57],['Checking security patterns…',76],
+    ['Building actionable report…',94],['Analysis complete',100]
+  ];
+  let i=0;
+  const timer=setInterval(()=>{
+    text.textContent=steps[i][0];pct.textContent=steps[i][1]+'%';i++;
+    if(i===steps.length){clearInterval(timer);setTimeout(()=>progress.classList.remove('active'),800)}
+  },500);
+}
+function exportReport(type){
+  if(type==='html'){
+    const blob=new Blob([document.documentElement.outerHTML],{type:'text/html'});
+    const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='repolens-report.html';a.click();URL.revokeObjectURL(a.href);
+  }else{
+    toast(type.toUpperCase()+' export hook ready — connect your backend exporter.');
+  }
+}
+function toast(msg){
+  const t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),2400);
+}
+</script>
+</body>
+</html>
