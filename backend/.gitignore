@@ -2,4 +2,12 @@
 /venv/
 .venv
 venv
-
+.next/
+.next2/
+.next3/
+node_modules/
+dist/
+build/
+.env
+.env.*
+!.env.example

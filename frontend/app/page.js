@@ -3,12 +3,7 @@
 import { useState, useEffect, useRef } from 'react';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api';
-const API_KEY = process.env.NEXT_PUBLIC_API_KEY || 'default_dev_key';
 
-const fetchWithAuth = (url, options = {}) => {
-  const headers = { ...options.headers, 'x-api-key': API_KEY };
-  return fetch(url, { ...options, headers });
-};
 
 export default function Home() {
   const [isAwake, setIsAwake] = useState(false);
@@ -51,7 +46,7 @@ export default function Home() {
       try {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 3000);
-        const res = await fetchWithAuth(`${API_BASE}/health`, { signal: controller.signal });
+        const res = await fetch(`${API_BASE}/health`, { signal: controller.signal });
         clearTimeout(timeoutId);
         if (res.ok) {
           setIsAwake(true);
@@ -88,7 +83,7 @@ export default function Home() {
     let pollInterval = null;
     
     try {
-      const response = await fetchWithAuth(`${API_BASE}/scan`, {
+      const response = await fetch(`${API_BASE}/scan`, {
          method: 'POST',
          headers: { 'Content-Type': 'application/json' },
          body: JSON.stringify({ repo_url: url.trim() })
@@ -102,7 +97,7 @@ export default function Home() {
          
          pollInterval = setInterval(async () => {
              try {
-                 const scanRes = await fetchWithAuth(`${API_BASE}/scan/${data.task_id}`);
+                 const scanRes = await fetch(`${API_BASE}/scan/${data.task_id}`);
                  const myScan = await scanRes.json();
                  
                  if (myScan && myScan.status !== 'running') {
@@ -149,7 +144,7 @@ export default function Home() {
                      }
                  } else {
                      try {
-                         const progressRes = await fetchWithAuth(`${API_BASE}/scan/${data.task_id}/progress`);
+                         const progressRes = await fetch(`${API_BASE}/scan/${data.task_id}/progress`);
                          if (progressRes.ok) {
                              const progressData = await progressRes.json();
                              if (progressData.progress) {
@@ -301,7 +296,7 @@ export default function Home() {
           return;
       }
       toast("Downloading DOCX report...");
-      fetchWithAuth(`${API_BASE}/scan/${currentTaskId}/export/docx`)
+      fetch(`${API_BASE}/scan/${currentTaskId}/export/docx`)
         .then(res => {
           if (!res.ok) throw new Error("Export failed");
           return res.blob();

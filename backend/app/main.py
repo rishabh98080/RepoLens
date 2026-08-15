@@ -28,28 +28,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-from pydantic_settings import BaseSettings
-from fastapi import Security, HTTPException, status, Depends
-from fastapi.security.api_key import APIKeyHeader
-
-class Settings(BaseSettings):
-    api_key: str = "default_dev_key"
-    
-    class Config:
-        env_file = ".env"
-
-settings = Settings()
-api_key_header = APIKeyHeader(name="X-API-Key", auto_error=True)
-
-async def verify_api_key(api_key: str = Security(api_key_header)):
-    if api_key != settings.api_key:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid API Key"
-        )
-    return api_key
-
-app.include_router(api_router, prefix="/api", dependencies=[Depends(verify_api_key)])
+app.include_router(api_router, prefix="/api")
 
 @app.get("/")
 def read_root():
