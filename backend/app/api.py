@@ -2,8 +2,9 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 import io
 import json
-from .schemas import ScanRequest, ScanResponse
+from .schemas import ScanRequest, ScanResponse, ExplainRequest
 from .worker import process_scan, ACTIVE_SCANS_PROGRESS
+from . import ai
 import uuid
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
@@ -86,6 +87,12 @@ async def get_scan(task_id: str, db: AsyncSession = Depends(get_db)):
 async def get_progress(task_id: str):
     progress = ACTIVE_SCANS_PROGRESS.get(task_id, "Pending...")
     return {"task_id": task_id, "progress": progress}
+
+@router.post("/explain")
+async def explain_issue(req: ExplainRequest):
+    # This calls the resilient AI function
+    result = ai.explain_finding(req.title, req.desc, req.code_snippet)
+    return result
 
 @router.get("/scan/{task_id}/export/docx")
 async def export_docx(task_id: str, db: AsyncSession = Depends(get_db)):

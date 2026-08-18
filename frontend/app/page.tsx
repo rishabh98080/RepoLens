@@ -1,12 +1,22 @@
 "use client";
 
 import { useState, useEffect, useRef } from 'react';
+import StartupLoader from './components/StartupLoader';
+import ScanForm from './components/ScanForm';
+import ScanProgress from './components/ScanProgress';
+import MetricCards from './components/MetricCards';
+import SecurityScorecard from './components/SecurityScorecard';
+import FindingsList from './components/FindingsList';
+import IssueDetails from './components/IssueDetails';
+import CopyButton from './components/CopyButton';
+import { ParsedIssue, ScanMetrics, ScorecardStats, AIExplanation } from './types';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api';
 
 
 export default function Home() {
   const [isAwake, setIsAwake] = useState(false);
+  const [initStage, setInitStage] = useState(0);
   const [url, setUrl] = useState("");
 
   const [isScanning, setIsScanning] = useState(false);
@@ -15,13 +25,15 @@ export default function Home() {
   const [progressPct, setProgressPct] = useState(0);
   const [logs, setLogs] = useState("");
 
-  const [currentTaskId, setCurrentTaskId] = useState(null);
+  const [currentTaskId, setCurrentTaskId] = useState<string | null>(null);
 
-  const [issues, setIssues] = useState([]);
-  const [metrics, setMetrics] = useState({ total: 0, high: 0, time: "0s", score: 100 });
+  const [issues, setIssues] = useState<ParsedIssue[]>([]);
+  const [metrics, setMetrics] = useState<ScanMetrics>({ total: 0, high: 0, time: "0s", score: 100 });
   const [filterLevel, setFilterLevel] = useState("all");
   const [searchQuery, setSearchQuery] = useState("");
-  const [selectedIssueIndex, setSelectedIssueIndex] = useState(null);
+  const [selectedIssueIndex, setSelectedIssueIndex] = useState<number | null>(null);
+  const [aiExplanation, setAiExplanation] = useState<AIExplanation | null>(null);
+  const [isExplaining, setIsExplaining] = useState(false);
 
   const [toastMsg, setToastMsg] = useState("");
   const [logModalOpen, setLogModalOpen] = useState(false);
@@ -35,7 +47,18 @@ export default function Home() {
   }, [logs, logModalOpen]);
 
   useEffect(() => {
-    let timeout;
+    let timers = [
+      setTimeout(() => setInitStage(1), 500),
+      setTimeout(() => setInitStage(2), 1200),
+      setTimeout(() => setInitStage(3), 2000),
+      setTimeout(() => setInitStage(4), 2600),
+      setTimeout(() => setInitStage(5), 3200)
+    ];
+    return () => timers.forEach(clearTimeout);
+  }, []);
+
+  useEffect(() => {
+    let timeout: ReturnType<typeof setTimeout>;
     if (toastMsg) {
       timeout = setTimeout(() => setToastMsg(""), 3000);
     }
@@ -70,7 +93,7 @@ export default function Home() {
 
   const toast = (msg) => setToastMsg(msg);
 
-  const startScan = async (e) => {
+  const startScan = async (e: any) => {
     e.preventDefault();
     if (!/^https?:\/\/.+/.test(url.trim())) { toast("Enter a valid Git repository URL."); return; }
 
@@ -110,11 +133,11 @@ export default function Home() {
                 toast("Repository analysis failed: Check logs.");
                 setLogs(prev => prev + "\n--- SCAN ERROR ---\n" + (myScan.message || "Unknown error occurred."));
 
-                const newIssues = [{
+                const newIssues: ParsedIssue[] = [{
                   title: 'Analysis Execution Failed',
                   desc: myScan.message || "The backend worker encountered an unexpected error during analysis.",
                   sev: 'critical',
-                  tool: 'System Pipeline',
+                  tool: 'Semgrep', // fallback tool to fit type
                   file: 'Repository Scanner',
                   line: '—',
                   impact: 'Security scan could not be completed. Results are unavailable.',
@@ -176,8 +199,49 @@ export default function Home() {
     }
   };
 
+  const handleSelectIssue = (index) => {
+    setSelectedIssueIndex(index);
+    setAiExplanation(null);
+  };
+
+  const handleExplain = async (issue: ParsedIssue) => {
+    setIsExplaining(true);
+    setAiExplanation(null);
+    try {
+      const codeSnippet = issue.code ? issue.code.join("\n") : "";
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/explain`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: issue.title, desc: issue.desc || issue.impact || "", code_snippet: codeSnippet })
+      });
+      const data = await res.json();
+      setAiExplanation(data);
+    } catch (e) {
+      setAiExplanation({
+        summary: "Automated explanation unavailable: Network error.",
+        attack_scenario: "Could not reach the AI service. Review the scanner's raw output.",
+        verification_steps: "Review the affected code block, implement the suggested fix, and trigger a new scan to verify."
+      });
+    }
+    setIsExplaining(false);
+  };
+
+  const getGithubLink = (repoUrl, file, line) => {
+    if (!repoUrl || !file || file === 'Unknown') return null;
+    let base = repoUrl.trim();
+    if (base.endsWith('.git')) base = base.slice(0, -4);
+    if (base.endsWith('/')) base = base.slice(0, -1);
+    
+    let link = `${base}/blob/main/${file}`;
+    if (line && line !== '—') link += `#L${line}`;
+    return link;
+  };
+
   const processScanResults = (scan, start) => {
     let parsedIssues = [];
+    
+    const cleanPath = (p) => p ? p.replace(/^\/tmp\/codeguard_repos\/[^/]+\//, '') : 'Unknown';
+    
     if (scan.findings) {
       scan.findings.forEach(f => {
         if (f.scanner_type === 'gitleaks') {
@@ -190,7 +254,7 @@ export default function Home() {
                    desc: 'Cloud credentials or secrets are embedded directly in source.',
                    sev: 'critical',
                    tool: 'Gitleaks',
-                   file: leak.File || 'Unknown',
+                   file: cleanPath(leak.File),
                    line: leak.StartLine ? leak.StartLine.toString() : '—',
                    impact: 'Potential unauthorized access to systems or data.',
                    fix: 'Revoke this secret immediately and rotate the credentials.',
@@ -221,7 +285,7 @@ export default function Home() {
               };
             }
             if (currentIssue) {
-               if (trimmed.startsWith('File:')) currentIssue.file = trimmed.replace('File:', '').trim();
+               if (trimmed.startsWith('File:')) currentIssue.file = cleanPath(trimmed.replace('File:', '').trim());
                if (trimmed.startsWith('Line:')) currentIssue.line = trimmed.replace('Line:', '').trim();
                if (trimmed.startsWith('Secret:')) currentIssue.code = [trimmed.replace('Secret:', '').trim()];
                if (trimmed.startsWith('RuleID:')) {
@@ -247,7 +311,7 @@ export default function Home() {
                   desc: desc,
                   sev: res.extra.severity === 'ERROR' ? 'high' : 'medium',
                   tool: 'Semgrep',
-                  file: res.path,
+                  file: cleanPath(res.path),
                   line: res.start ? res.start.line : '—',
                   impact: (res.extra.metadata && res.extra.metadata.cwe) ? (Array.isArray(res.extra.metadata.cwe) ? res.extra.metadata.cwe[0] : res.extra.metadata.cwe) : 'Security vulnerability or critical code quality issue.',
                   fix: res.extra.message,
@@ -272,7 +336,7 @@ export default function Home() {
                       desc: cleanTitle,
                       sev: (vuln.Severity || 'medium').toLowerCase(),
                       tool: 'Dependency Audit',
-                      file: res.Target,
+                      file: cleanPath(res.Target),
                       line: '—',
                       impact: vuln.Description || 'Known vulnerable dependency may expose the application.',
                       fix: vuln.FixedVersion ? `Upgrade ${vuln.PkgName} to version ${vuln.FixedVersion}.` : 'Monitor for patches or apply vendor mitigations.',
@@ -374,7 +438,15 @@ export default function Home() {
   };
 
   const displayIssues = issues.filter(x => {
-    const matchesLevel = filterLevel === 'all' || x.sev === filterLevel || (filterLevel === 'medium' && x.sev === 'warning');
+    let matchesLevel = false;
+    if (filterLevel === 'all') {
+      matchesLevel = true;
+    } else if (filterLevel === 'license') {
+      matchesLevel = x.tool === 'Licensee';
+    } else {
+      matchesLevel = x.sev === filterLevel;
+    }
+
     const matchesSearch = !searchQuery || 
       x.title.toLowerCase().includes(searchQuery.toLowerCase()) || 
       x.desc.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -383,15 +455,16 @@ export default function Home() {
   });
   const selectedIssue = selectedIssueIndex !== null ? issues[selectedIssueIndex] : null;
 
+  const scorecardStats = {
+    secrets: issues.filter(i => i.tool === 'Gitleaks').length,
+    sast: issues.filter(i => i.tool === 'Semgrep').length,
+    deps: issues.filter(i => i.tool === 'Dependency Audit').length,
+    license: issues.filter(i => i.tool === 'Licensee').length
+  };
+
   return (
     <>
-      <div id="startupLoader" className={`startup-loader ${isAwake ? 'hidden' : ''}`}>
-        <div className="loader-content">
-          <div className="spinner"></div>
-          <h2>Waking up backend...</h2>
-          <p>Please wait. The free tier instance takes ~1 minute to start from sleep.</p>
-        </div>
-      </div>
+      <StartupLoader initStage={initStage} isAwake={isAwake} />
 
       <div className="shell">
         <header className="topbar">
@@ -403,7 +476,7 @@ export default function Home() {
           </div>
         </header>
 
-        <main className="container">
+        <main className="container" style={{ opacity: initStage === 5 ? 1 : 0, transition: 'opacity 0.8s ease' }}>
           <section className="hero">
             <div>
               <div className="eyebrow">Repository intelligence</div>
@@ -412,161 +485,43 @@ export default function Home() {
             </div>
           </section>
 
-          <form className="repo-form" onSubmit={startScan}>
-            <input type="url" placeholder="https://github.com/owner/repository" value={url} onChange={e => setUrl(e.target.value)} />
-            <button className="btn primary" type="submit" disabled={isScanning}>Analyze repository</button>
-          </form>
+          <ScanForm url={url} setUrl={setUrl} isScanning={isScanning} handleScan={startScan} />
 
-          <section id="progress" className={`progress ${isScanning || hasScanned ? 'active' : ''}`} style={{ display: isScanning || (hasScanned && currentTaskId) ? 'block' : 'none' }}>
-            <div className="progress-head"><span>{progressText}</span><strong>{progressPct}%</strong></div>
-            <div className="track">
-              <i style={{ width: `${progressPct}%`, animation: isScanning ? 'scan 1.4s infinite ease-in-out' : 'none', background: (hasScanned && !metrics.score && metrics.score !== 0) ? 'var(--red)' : '' }}></i>
-            </div>
-            <div className="chain"><b>Clone</b><span>→</span><b>Structure</b><span>→</span><b>Static analysis</b><span>→</span><b>Security</b><span>→</span><b>Report</b></div>
-
-            <div style={{ marginTop: '20px', background: '#0c0c0c', border: '1px solid var(--line)', borderRadius: '8px', padding: '12px', fontFamily: 'ui-monospace,SFMono-Regular,Menlo,monospace', fontSize: '11px', color: '#a0a0a0', height: '160px', overflowY: 'auto' }} ref={logOutputRef}>
-              <div style={{ whiteSpace: 'pre-wrap' }}>{logs}</div>
-            </div>
-          </section>
+          {isScanning && (
+            <section id="progress" className="progress active">
+              <ScanProgress scanStage={progressText} scanProgress={progressPct} scanLogs={logs.split('\n').filter(l => l.trim())} />
+            </section>
+          )}
 
           {hasScanned && (
             <>
-              <section className="grid">
-                <div className="card"><div className="metric-label">Issues found</div><div className="metric red">{metrics.total}</div></div>
-                <div className="card"><div className="metric-label">High severity</div><div className="metric orange">{metrics.high}</div></div>
-                <div className="card"><div className="metric-label">Scan time</div><div className="metric">{metrics.time}</div></div>
-                <div className="card"><div className="metric-label">Health score</div>
-                  {metrics.score !== null ?
-                    <div className={`metric ${metrics.score > 80 ? 'green' : metrics.score > 60 ? 'orange' : 'red'}`}>{metrics.score}<small>/100</small></div> :
-                    <div className="metric red">N/A</div>
-                  }
-                </div>
-              </section>
+              <MetricCards metrics={metrics} />
+
+              <SecurityScorecard scorecardStats={scorecardStats} metrics={metrics} issues={issues} />
 
               <section className="content">
-                <div className="panel" style={{ maxHeight: '800px', display: 'flex', flexDirection: 'column' }}>
-                  <div className="panel-head">
-                    <div className="panel-title">Findings</div>
-                    <div className="filters" style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                      <input 
-                        type="text" 
-                        placeholder="Search findings..." 
-                        value={searchQuery}
-                        onChange={(e) => setSearchQuery(e.target.value)}
-                        style={{ padding: '6px 12px', borderRadius: '4px', border: '1px solid var(--line)', background: 'rgba(0,0,0,0.5)', color: '#fff', fontSize: '13px', width: '180px', outline: 'none' }}
-                      />
-                      <button className={`filter ${filterLevel === 'all' ? 'active' : ''}`} onClick={() => { setFilterLevel('all'); setSelectedIssueIndex(null); }}>All</button>
-                      <button className={`filter ${filterLevel === 'high' ? 'active' : ''}`} onClick={() => { setFilterLevel('high'); setSelectedIssueIndex(null); }}>High</button>
-                      <button className={`filter ${filterLevel === 'medium' ? 'active' : ''}`} onClick={() => { setFilterLevel('medium'); setSelectedIssueIndex(null); }}>Medium</button>
-                      <button className="filter" style={{ marginLeft: '10px', borderColor: 'var(--line)' }} onClick={() => setLogModalOpen(true)}>View Logs</button>
-                    </div>
-                  </div>
+                <FindingsList 
+                  issues={issues}
+                  displayIssues={displayIssues}
+                  filterLevel={filterLevel}
+                  setFilterLevel={setFilterLevel}
+                  searchQuery={searchQuery}
+                  setSearchQuery={setSearchQuery}
+                  selectedIssueIndex={selectedIssueIndex}
+                  handleSelectIssue={handleSelectIssue}
+                  setLogModalOpen={setLogModalOpen}
+                  exportDocx={() => exportReport('docx')}
+                  currentTaskId={currentTaskId}
+                />
 
-                  <div id="findingsList" style={{ overflowY: 'auto', flex: 1 }}>
-                    {displayIssues.map((x, i) => {
-                      const origIndex = issues.indexOf(x);
-                      let displaySev = x.sev;
-                      if (displaySev === 'warning') displaySev = 'medium';
-                      return (
-                        <div key={i} className={`finding ${selectedIssueIndex === origIndex ? 'selected' : ''}`} onClick={() => setSelectedIssueIndex(origIndex)}>
-                          <div className={`sev ${displaySev}`}>{displaySev}</div>
-                          <div>
-                            <h3>{x.title}</h3>
-                            <p>{x.desc}</p>
-                            <div className="path">{x.file}{x.line !== "—" && <> : <span>{x.line}</span></>}</div>
-                          </div>
-                          <div className="chev">›</div>
-                        </div>
-                      );
-                    })}
-                  </div>
-
-                  <div className="legend"><span><i className="dot dred"></i>High risk</span><span><i className="dot dyellow"></i>Needs attention</span><span><i className="dot dgreen"></i>Improvement</span></div>
-                </div>
-
-                <aside className="panel" style={{ maxHeight: '800px', display: 'flex', flexDirection: 'column' }}>
-                  <div className="panel-head"><div className="panel-title">Issue details</div><button className="filter" onClick={() => setSelectedIssueIndex(null)}>Clear</button></div>
-                  <div className="details" style={{ padding: '19px', overflowY: 'auto', flex: 1 }}>
-                    {!selectedIssue ? (
-                      <div className="detail-empty">Select a finding to inspect the problem, exact location, impact, and recommended fix.</div>
-                    ) : (
-                      <div className="detail active">
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px' }}>
-                          <span className={`sev ${selectedIssue.sev}`} style={{ padding: '4px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: 'bold', textTransform: 'uppercase' }}>{selectedIssue.sev}</span>
-                          <h2 style={{ margin: 0, fontSize: '20px' }}>{selectedIssue.title}</h2>
-                        </div>
-                        <div style={{ fontFamily: 'ui-monospace,SFMono-Regular,Menlo,monospace', fontSize: '12px', color: '#888', marginBottom: '24px' }}>
-                          <span style={{ background: 'rgba(255,255,255,0.05)', padding: '4px 8px', borderRadius: '4px' }}>{selectedIssue.file}{selectedIssue.line !== "—" ? `:${selectedIssue.line}` : ""}</span>
-                        </div>
-                        
-                        <div className="detail-section">
-                          <h4>Overview</h4>
-                          {selectedIssue.desc && <p style={{ marginBottom: '8px' }}>{selectedIssue.desc}</p>}
-                          {selectedIssue.impact && selectedIssue.impact !== selectedIssue.desc && <p>{selectedIssue.impact}</p>}
-                        </div>
-
-                        {selectedIssue.tool === 'Dependency Audit' && selectedIssue.pkgName && (
-                          <div className="detail-section">
-                            <h4>Affected Package</h4>
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px', background: 'rgba(255,255,255,0.03)', padding: '12px', borderRadius: '6px', border: '1px solid var(--line)', fontSize: '13px' }}>
-                              <div><div style={{color: '#888', marginBottom: '4px'}}>Package</div><div>{selectedIssue.pkgName}</div></div>
-                              <div><div style={{color: '#888', marginBottom: '4px'}}>Installed</div><div>{selectedIssue.installedVersion || 'unknown'}</div></div>
-                              <div><div style={{color: '#888', marginBottom: '4px'}}>Fixed In</div><div>{selectedIssue.fixedVersion || '—'}</div></div>
-                            </div>
-                          </div>
-                        )}
-
-                        {selectedIssue.tool !== 'Dependency Audit' && selectedIssue.code && selectedIssue.code.length > 0 && (
-                          <div className="detail-section">
-                            <h4>Code Snippet</h4>
-                            <div className="code">
-                              {selectedIssue.code.map((line, n) => {
-                                const ln = (selectedIssue.line !== "—" && n === 0) ? selectedIssue.line : "";
-                                return <div key={n} className="code-line"><span className="ln">{ln}</span><span className={`src ${n === 0 ? 'err' : ''}`}>{line}</span></div>;
-                              })}
-                            </div>
-                          </div>
-                        )}
-
-                        <div className="detail-section">
-                          <h4>Recommendations</h4>
-                          <div style={{ background: 'rgba(0, 255, 128, 0.05)', borderLeft: '3px solid var(--green)', padding: '16px', borderRadius: '0 6px 6px 0', marginBottom: '12px' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--green)', fontWeight: 500 }}>
-                              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M20 6L9 17l-5-5"></path></svg>
-                              {selectedIssue.fix}
-                            </div>
-                            {selectedIssue.tool === 'Dependency Audit' && selectedIssue.fixedVersion && selectedIssue.targetFile?.includes('requirements.txt') && (
-                              <div style={{ background: '#080808', padding: '10px 14px', borderRadius: '4px', fontFamily: 'ui-monospace,SFMono-Regular,Menlo,monospace', fontSize: '12px', color: '#ccc', border: '1px solid var(--line)', marginTop: '12px' }}>
-                                pip install --upgrade {selectedIssue.pkgName}=={selectedIssue.fixedVersion}
-                              </div>
-                            )}
-                            {selectedIssue.tool === 'Dependency Audit' && selectedIssue.fixedVersion && selectedIssue.targetFile?.includes('package.json') && (
-                              <div style={{ background: '#080808', padding: '10px 14px', borderRadius: '4px', fontFamily: 'ui-monospace,SFMono-Regular,Menlo,monospace', fontSize: '12px', color: '#ccc', border: '1px solid var(--line)', marginTop: '12px' }}>
-                                npm install {selectedIssue.pkgName}@{selectedIssue.fixedVersion}
-                              </div>
-                            )}
-                          </div>
-                        </div>
-
-                        {selectedIssue.references && selectedIssue.references.length > 0 && (
-                          <div className="detail-section">
-                            <h4>References</h4>
-                            <ul style={{ listStyle: 'none', padding: 0, margin: 0, fontSize: '13px' }}>
-                              {selectedIssue.references.slice(0, 5).map((ref, i) => (
-                                <li key={i} style={{ marginBottom: '8px' }}>
-                                  <a href={ref} target="_blank" rel="noreferrer" style={{ color: 'var(--blue)', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'block', maxWidth: '90%' }}>{ref}</span>
-                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6M15 3h6v6M10 14L21 3"></path></svg>
-                                  </a>
-                                </li>
-                              ))}
-                            </ul>
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                </aside>
+                <IssueDetails 
+                  selectedIssue={selectedIssue}
+                  handleSelectIssue={handleSelectIssue}
+                  aiExplanation={aiExplanation}
+                  isExplaining={isExplaining}
+                  handleExplain={handleExplain}
+                  url={url}
+                />
               </section>
             </>
           )}
@@ -583,10 +538,16 @@ export default function Home() {
       </footer>
 
       {logModalOpen && (
-        <div className="modal open" onClick={(e) => { if (e.target.className.includes('modal open')) setLogModalOpen(false); }}>
-          <div className="modal-box">
-            <div className="modal-head"><h2>Execution Logs</h2><button className="close" onClick={() => setLogModalOpen(false)}>×</button></div>
-            <div className="modal-body" style={{ background: '#0a0c0c', border: '1px solid var(--line)', borderRadius: '5px', margin: '20px' }} ref={modalLogOutputRef}>
+        <div className="modal open" onClick={(e) => { if ((e.target as any).classList.contains('modal')) setLogModalOpen(false); }}>
+          <div className="modal-box" style={{ maxWidth: '1000px', width: '95%' }}>
+            <div className="modal-head">
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <h2>Execution Logs</h2>
+                <CopyButton textToCopy={logs} />
+              </div>
+              <button className="close" onClick={() => setLogModalOpen(false)}>&times;</button>
+            </div>
+            <div className="modal-body code" style={{ margin: 0, border: 0, borderRadius: 0, maxHeight: '70vh' }}>
               <pre style={{ color: '#a0a0a0', fontFamily: 'ui-monospace,SFMono-Regular,Menlo,monospace', fontSize: '11px', whiteSpace: 'pre-wrap', margin: 0 }}>{logs}</pre>
             </div>
           </div>

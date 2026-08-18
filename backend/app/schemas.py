@@ -6,4 +6,9 @@ class ScanRequest(BaseModel):
 class ScanResponse(BaseModel):
     status: str
     message: str
-    task_id: str | None = None
+    task_id: str
+
+class ExplainRequest(BaseModel):
+    title: str
+    desc: str
+    code_snippet: str = ""

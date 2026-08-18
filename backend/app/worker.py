@@ -115,9 +115,6 @@ async def process_scan(repo_url: str, task_id: str):
                 scan.message = scan_data.get("message")
                 scan.completed_at = datetime.utcnow()
                 
-                gitleaks_count = 0
-                semgrep_count = 0
-                
                 if "findings" in scan_data:
                     for scanner, output in scan_data["findings"].items():
                         finding = Finding(
@@ -126,23 +123,46 @@ async def process_scan(repo_url: str, task_id: str):
                             raw_output=output
                         )
                         session.add(finding)
-                        
-                        # Very basic simulated counting for ML model
-                        if scanner == "gitleaks" and "No leaks found" not in output:
-                            gitleaks_count += 1
-                        if scanner == "semgrep" and "No vulnerabilities found" not in output:
-                            semgrep_count += 1
-                        if scanner == "trivy" and "Trivy not installed" not in output:
-                            # Trivy json format checking will happen, but this just adds a slight penalty if it ran
-                            semgrep_count += 1
                 
-                # ML Risk Scoring
+                # Deterministic Risk Scoring
                 try:
-                    from .ml import calculate_risk_score
-                    risk_score = calculate_risk_score(gitleaks_count, semgrep_count, complexity=15)
-                    scan.risk_score = int(risk_score)
-                except Exception as ml_e:
-                    print(f"ML Scoring failed: {ml_e}")
+                    score_penalty = 0
+                    if "findings" in scan_data:
+                        # Gitleaks (Secrets)
+                        g_out = scan_data["findings"].get("gitleaks", "")
+                        if g_out and "No leaks found" not in g_out:
+                            leaks_count = g_out.count("RuleID:")
+                            score_penalty += (leaks_count if leaks_count > 0 else 1) * 25
+                            
+                        # Semgrep (SAST)
+                        s_out = scan_data["findings"].get("semgrep", "{}")
+                        try:
+                            import json
+                            s_data = json.loads(s_out)
+                            for res in s_data.get("results", []):
+                                sev = res.get("extra", {}).get("severity", "").upper()
+                                if sev == "ERROR": score_penalty += 15
+                                elif sev == "WARNING": score_penalty += 7
+                                else: score_penalty += 2
+                        except Exception: pass
+                        
+                        # Trivy (Dependencies)
+                        t_out = scan_data["findings"].get("trivy", "{}")
+                        try:
+                            import json
+                            t_data = json.loads(t_out)
+                            for res in t_data.get("Results", []):
+                                for vuln in res.get("Vulnerabilities", []):
+                                    sev = vuln.get("Severity", "").upper()
+                                    if sev == "CRITICAL": score_penalty += 25
+                                    elif sev == "HIGH": score_penalty += 15
+                                    elif sev == "MEDIUM": score_penalty += 7
+                                    elif sev == "LOW": score_penalty += 2
+                        except Exception: pass
+                    
+                    scan.risk_score = max(0, 100 - score_penalty)
+                except Exception as e:
+                    print(f"Risk Scoring failed: {e}")
                     scan.risk_score = 0
                     if scan.status == "completed":
                         scan.message = (scan.message or "") + "\nWarning: Risk score calculation failed."
