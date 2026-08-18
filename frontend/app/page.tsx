@@ -11,7 +11,14 @@ import IssueDetails from './components/IssueDetails';
 import CopyButton from './components/CopyButton';
 import { ParsedIssue, ScanMetrics, ScorecardStats, AIExplanation } from './types';
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api';
+const getApiBase = () => {
+  const envUrl = process.env.NEXT_PUBLIC_API_URL;
+  if (envUrl) {
+    return envUrl.endsWith('/api') ? envUrl : `${envUrl.replace(/\/$/, '')}/api`;
+  }
+  return 'http://localhost:8000/api';
+};
+const API_BASE = getApiBase();
 
 
 export default function Home() {
