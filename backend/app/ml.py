@@ -3,7 +3,8 @@ from sklearn.ensemble import RandomForestRegressor
 import pickle
 import os
 
-MODEL_PATH = "risk_model.pkl"
+import os
+MODEL_PATH = os.path.join(os.path.dirname(__file__), "..", "risk_model.pkl")
 
 def get_or_train_model():
     if os.path.exists(MODEL_PATH):
