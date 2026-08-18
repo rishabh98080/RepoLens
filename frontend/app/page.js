@@ -2,8 +2,8 @@
 
 import { useState, useEffect, useRef } from 'react';
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/';
-const API_HEALTH_CHECK = process.env.NEXT_PUBLIC_API_URL_HEALTH_CHECK || 'http://localhost:8000/api';
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api';
+
 
 export default function Home() {
   const [isAwake, setIsAwake] = useState(false);
@@ -46,7 +46,7 @@ export default function Home() {
       try {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 3000);
-        const res = await fetch(`${API_HEALTH_CHECK}/health`, { signal: controller.signal });
+        const res = await fetch(`${API_BASE}/health`, { signal: controller.signal });
         clearTimeout(timeoutId);
         if (res.ok) {
           setIsAwake(true);
